@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>元素領地爭奪戰</title>
+    <style>
+        :root {
+            --red-color: #ff2a2a;
+            --blue-color: #2a75ff;
+            --bg-color: #0d0f12;
+            --grid-bg: #1a1e24;
+            --neon-glow-red: 0 0 10px #ff2a2a, 0 0 20px #ff2a2a;
+            --neon-glow-blue: 0 0 10px #2a75ff, 0 0 20px #2a75ff;
+            --neon-glow-yellow: 0 0 15px #ffd700, 0 0 30px #ffd700;
+        }
+
+        body {
+            background-color: var(--bg-color); color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; display: flex; flex-direction: column;
+            align-items: center; height: 100vh; overflow: hidden;
+        }
+
+        /* --- 擲硬幣開場區 --- */
+        #coin-toss-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(13, 15, 18, 0.95); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100; text-align: center;
+        }
+        #coin-toss-screen h1 { color: #ffd700; margin-bottom: 10px; font-size: 2.5rem; text-shadow: 0 0 10px #ffd700; }
+        #coin-toss-screen h2 { color: #ccc; margin-bottom: 40px; font-size: 1.2rem; font-weight: normal; line-height: 1.5; }
+        #coin {
+            width: 150px; height: 150px; border-radius: 50%;
+            background: linear-gradient(45deg, #ffd700, #ffaa00);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2rem; font-weight: bold; color: black;
+            box-shadow: 0 0 30px #ffd700; cursor: pointer;
+            transition: transform 2s ease-out;
+        }
+        .spin { animation: flip 0.5s infinite linear; }
+        @keyframes flip { 0% { transform: scaleX(1); } 50% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
+
+        /* --- 遊戲主畫面 --- */
+        #game-screen {
+            display: none; width: 100%; max-width: 600px;
+            flex-direction: column; align-items: center;
+            padding: 10px; box-sizing: border-box;
+        }
+
+        /* 頂部分數板 */
+        #header {
+            display: flex; justify-content: space-between; align-items: center;
+            width: 100%; margin-top: 10px; margin-bottom: 15px;
+        }
+        .score-box {
+            padding: 10px 15px; border-radius: 8px; font-size: 1.2rem; font-weight: bold;
+            background: #222; border: 2px solid transparent; transition: 0.3s;
+        }
+        #red-score { border-color: var(--red-color); }
+        #blue-score { border-color: var(--blue-color); }
+        #turn-indicator { font-size: 1.2rem; font-weight: bold; text-align: center; line-height: 1.4; }
+
+        /* 領地爭奪圖板 (6x6) */
+        #grid {
+            display: grid; grid-template-columns: repeat(6, 1fr);
+            gap: 8px; width: 100%; max-width: 450px; margin-bottom: 15px;
+        }
+        .cell {
+            aspect-ratio: 1; background-color: var(--grid-bg);
+            border: 2px solid #333; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; font-weight: bold; color: #555;
+            transition: all 0.2s ease;
+        }
+        
+        #grid.selecting .cell:not(.red):not(.blue):hover {
+            border-color: white; box-shadow: 0 0 15px white;
+            cursor: pointer; transform: scale(1.05); color: white;
+        }
+
+        .cell.target { border-color: #ffd700; box-shadow: var(--neon-glow-yellow); color: #ffd700; animation: pulse 1s infinite alternate; }
+        .cell.red { background-color: #4a0000; border-color: var(--red-color); box-shadow: var(--neon-glow-red); color: white; }
+        .cell.blue { background-color: #001f4a; border-color: var(--blue-color); box-shadow: var(--neon-glow-blue); color: white; }
+        
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.05); } }
+
+        /* 戰鬥儀表板 (下方出題區) - 加入動態邊框過渡效果 */
+        #control-panel {
+            width: 100%; background: #1a1e24; border-radius: 12px;
+            padding: 15px; box-sizing: border-box; text-align: center;
+            border: 3px solid #444; /* 預設邊框 */
+            box-shadow: none;
+            transition: border-color 0.4s ease, box-shadow 0.4s ease;
+            min-height: 250px; display: flex; flex-direction: column;
+        }
+        #question-target { font-size: 2.5rem; font-weight: bold; margin-bottom: 15px; color: #ffd700; letter-spacing: 2px;}
+        #options { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;}
+        .option-btn {
+            background: #2a303c; border: 2px solid #555; color: white;
+            padding: 12px; font-size: 1.2rem; border-radius: 8px;
+            cursor: pointer; font-weight: bold; transition: 0.2s;
+        }
+        .option-btn:hover:not(:disabled) { background: #3a4252; border-color: white; }
+        .option-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        
+        #feedback-msg { height: 24px; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;}
+        
+        /* 領地統計數據 */
+        #territory-stats {
+            margin-top: auto; font-size: 1.1rem; font-weight: bold;
+            background: #111; padding: 10px; border-radius: 8px; border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="coin-toss-screen">
+        <h1>元素領地爭奪戰</h1>
+        <h2>請雙方決定好誰是「紅隊」、誰是「藍隊」後<br>點擊下方硬幣決定先後攻！</h2>
+        <div id="coin" onclick="startCoinToss()">TOSS</div>
+    </div>
+
+    <div id="game-screen">
+        <div id="header">
+            <div id="red-score" class="score-box">🔴 得分: <span id="red-points">0</span> / 3</div>
+            <div id="turn-indicator">準備中...</div>
+            <div id="blue-score" class="score-box">🔵 得分: <span id="blue-points">0</span> / 3</div>
+        </div>
+
+        <div id="grid"></div>
+
+        <div id="control-panel">
+            <div id="feedback-msg" style="color: #aaa;">準備開始作答！</div>
+            <div id="question-target">?</div>
+            <div id="options">
+                <button class="option-btn" disabled>-</button>
+                <button class="option-btn" disabled>-</button>
+                <button class="option-btn" disabled>-</button>
+                <button class="option-btn" disabled>-</button>
+            </div>
+            
+            <div id="territory-stats">
+                <span style="color: var(--red-color)">🔴 領地: <span id="red-territory">0</span></span> 
+                &nbsp;|&nbsp; 
+                <span style="color: var(--blue-color)">🔵 領地: <span id="blue-territory">0</span></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const elementPool = [
+            { s: 'H', n: '氫' }, { s: 'He', n: '氦' }, { s: 'Li', n: '鋰' }, { s: 'Be', n: '鈹' },
+            { s: 'B', n: '硼' }, { s: 'C', n: '碳' }, { s: 'N', n: '氮' }, { s: 'O', n: '氧' },
+            { s: 'F', n: '氟' }, { s: 'Ne', n: '氖' }, { s: 'Na', n: '鈉' }, { s: 'Mg', n: '鎂' },
+            { s: 'Al', n: '鋁' }, { s: 'Si', n: '矽' }, { s: 'P', n: '磷' }, { s: 'S', n: '硫' },
+            { s: 'Cl', n: '氯' }, { s: 'Ar', n: '氬' }, { s: 'K', n: '鉀' }, { s: 'Ca', n: '鈣' },
+            { s: 'Sc', n: '鈧' }, { s: 'Ti', n: '鈦' }, { s: 'V', n: '釩' }, { s: 'Cr', n: '鉻' },
+            { s: 'Mn', n: '錳' }, { s: 'Fe', n: '鐵' }, { s: 'Co', n: '鈷' }, { s: 'Ni', n: '鎳' },
+            { s: 'Cu', n: '銅' }, { s: 'Zn', n: '鋅' }, { s: 'Ga', n: '鎵' }, { s: 'Ge', n: '鍺' },
+            { s: 'As', n: '砷' }, { s: 'Se', n: '硒' }, { s: 'Br', n: '溴' }, { s: 'Kr', n: '氪' },
+            { s: 'Rb', n: '銣' }, { s: 'Sr', n: '鍶' }, { s: 'Y', n: '釔' }, { s: 'Zr', n: '鋯' },
+            { s: 'Ag', n: '銀' }, { s: 'Cd', n: '鎘' }, { s: 'Sn', n: '錫' }, { s: 'Sb', n: '銻' },
+            { s: 'I', n: '碘' }, { s: 'Xe', n: '氙' }, { s: 'Cs', n: '銫' }, { s: 'Ba', n: '鋇' },
+            { s: 'W', n: '鎢' }, { s: 'Pt', n: '鉑' }, { s: 'Au', n: '金' }, { s: 'Hg', n: '汞' },
+            { s: 'Pb', n: '鉛' }, { s: 'Rn', n: '氡' }, { s: 'Fr', n: '鍅' }, { s: 'Ra', n: '鐳' },
+            { s: 'U', n: '鈾' }
+        ];
+
+        let currentBoardElements = [];
+        let board = Array(36).fill(null);
+        let currentTurn = ''; 
+        let turnPhase = ''; 
+        let currentTargetIndex = -1;
+
+        function shuffleArray(array) {
+            let arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        function initGrid() {
+            currentBoardElements = shuffleArray(elementPool).slice(0, 36);
+            const gridDiv = document.getElementById('grid');
+            gridDiv.innerHTML = '';
+            for (let i = 0; i < 36; i++) {
+                let cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.id = `cell-${i}`;
+                cell.innerText = currentBoardElements[i].s;
+                cell.onclick = () => handleCellClick(i);
+                gridDiv.appendChild(cell);
+            }
+        }
+
+        function startCoinToss() {
+            const coin = document.getElementById('coin');
+            coin.innerText = "";
+            coin.classList.add('spin');
+            
+            setTimeout(() => {
+                coin.classList.remove('spin');
+                const isRedFirst = Math.random() > 0.5;
+                currentTurn = isRedFirst ? 'red' : 'blue';
+                
+                coin.style.background = isRedFirst ? '#ff2a2a' : '#2a75ff';
+                coin.style.boxShadow = isRedFirst ? '0 0 30px #ff2a2a' : '0 0 30px #2a75ff';
+                coin.style.color = 'white';
+                coin.innerText = isRedFirst ? "RED" : "BLUE";
+
+                setTimeout(() => {
+                    document.getElementById('coin-toss-screen').style.display = 'none';
+                    document.getElementById('game-screen').style.display = 'flex';
+                    initGrid();
+                    startNormalPhase();
+                }, 1500);
+            }, 2000);
+        }
+
+        // 動態更新所有 UI (包含控制面板的邊框顏色)
+        function updateTurnUI() {
+            const indicator = document.getElementById('turn-indicator');
+            const controlPanel = document.getElementById('control-panel');
+            let text = currentTurn === 'red' ? "🔴 紅隊回合" : "🔵 藍隊回合";
+            
+            // 變更作答區塊的強光與邊框
+            if (currentTurn === 'red') {
+                controlPanel.style.borderColor = 'var(--red-color)';
+                controlPanel.style.boxShadow = 'var(--neon-glow-red)';
+            } else {
+                controlPanel.style.borderColor = 'var(--blue-color)';
+                controlPanel.style.boxShadow = 'var(--neon-glow-blue)';
+            }
+            
+            if (turnPhase === 'COMBO_SELECT') {
+                text += "<br><span style='color:#ffd700; font-size:1rem;'>🔥 COMBO! 請點擊圖板指定目標</span>";
+            } else if (turnPhase === 'STEAL') {
+                text += "<br><span style='color:#ff2a2a; font-size:1rem;'>⚔️ 撿尾刀機會！</span>";
+            } else if (turnPhase === 'NORMAL') {
+                text += "<br><span style='color:#aaa; font-size:0.9rem;'>系統隨機指派目標中...</span>";
+            }
+
+            indicator.innerHTML = text;
+            indicator.style.color = currentTurn === 'red' ? 'var(--red-color)' : 'var(--blue-color)';
+            
+            document.getElementById('red-score').style.boxShadow = currentTurn === 'red' ? 'var(--neon-glow-red)' : 'none';
+            document.getElementById('blue-score').style.boxShadow = currentTurn === 'blue' ? 'var(--neon-glow-blue)' : 'none';
+
+            const gridDiv = document.getElementById('grid');
+            if (turnPhase === 'COMBO_SELECT') gridDiv.classList.add('selecting');
+            else gridDiv.classList.remove('selecting');
+        }
+
+        // 取得目前隊伍名稱文字 (紅隊 / 藍隊)
+        function getTeamName() {
+            return currentTurn === 'red' ? "🔴 紅隊" : "🔵 藍隊";
+        }
+
+        function startNormalPhase() {
+            turnPhase = 'NORMAL';
+            
+            let emptyIndices = [];
+            for (let i = 0; i < 36; i++) {
+                if (board[i] === null) emptyIndices.push(i);
+            }
+            if (emptyIndices.length === 0) { alert("遊戲結束！圖板已滿！"); return; }
+
+            if (currentTargetIndex !== -1 && document.getElementById(`cell-${currentTargetIndex}`)) {
+                 document.getElementById(`cell-${currentTargetIndex}`).classList.remove('target');
+            }
+
+            currentTargetIndex = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+            setupQuestion(currentTargetIndex);
+            updateTurnUI();
+            
+            // 增加隊伍點名提示
+            document.getElementById('feedback-msg').innerHTML = `<span style='color:#ffd700;'>${getTeamName()}請作答！</span>`;
+        }
+
+        function handleCellClick(index) {
+            if (turnPhase !== 'COMBO_SELECT') return;
+            if (board[index] !== null) return;
+            
+            turnPhase = 'COMBO_ANSWER';
+            
+            if (currentTargetIndex !== -1 && document.getElementById(`cell-${currentTargetIndex}`)) {
+                 document.getElementById(`cell-${currentTargetIndex}`).classList.remove('target');
+            }
+            currentTargetIndex = index;
+            setupQuestion(currentTargetIndex);
+            updateTurnUI();
+            
+            // 增加隊伍點名提示
+            document.getElementById('feedback-msg').innerHTML = `${getTeamName()}請作答！`;
+        }
+
+        function setupQuestion(index) {
+            document.getElementById(`cell-${index}`).classList.add('target');
+            const correctElement = currentBoardElements[index];
+            document.getElementById('question-target').innerText = correctElement.s;
+
+            const optionsDiv = document.getElementById('options');
+            optionsDiv.innerHTML = '';
+
+            let wrongOptions = elementPool.filter(e => e.s !== correctElement.s);
+            wrongOptions = shuffleArray(wrongOptions);
+            
+            let currentOptions = [correctElement, wrongOptions[0], wrongOptions[1], wrongOptions[2]];
+            currentOptions = shuffleArray(currentOptions);
+
+            currentOptions.forEach(opt => {
+                let btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.innerText = opt.n;
+                btn.onclick = () => processAnswer(opt, correctElement, btn);
+                optionsDiv.appendChild(btn);
+            });
+        }
+
+        function processAnswer(selectedOption, correctElement, btnElement) {
+            const isCorrect = (selectedOption.s === correctElement.s);
+            const msgBox = document.getElementById('feedback-msg');
+
+            document.querySelectorAll('.option-btn').forEach(b => {
+                if(b.style.background !== 'rgb(170, 0, 0)') b.disabled = true;
+            });
+
+            if (isCorrect) {
+                btnElement.style.background = '#00aa00';
+                
+                board[currentTargetIndex] = currentTurn;
+                const cell = document.getElementById(`cell-${currentTargetIndex}`);
+                cell.classList.remove('target');
+                cell.classList.add(currentTurn);
+
+                updateTerritoryStats();
+                checkWin(); 
+
+                if (turnPhase === 'NORMAL' || turnPhase === 'STEAL') {
+                    turnPhase = 'COMBO_SELECT';
+                    msgBox.innerHTML = `<span style='color:#00aa00;'> ${getTeamName()}佔領成功！獲得 COMBO，請指定下個戰場！</span>`;
+                    document.getElementById('question-target').innerText = "點擊圖板";
+                    updateTurnUI();
+                } else if (turnPhase === 'COMBO_ANSWER') {
+                    msgBox.innerHTML = `<span style='color:#00aa00;'> ${getTeamName()}佔領成功！連擊結束。</span>`;
+                    currentTurn = currentTurn === 'red' ? 'blue' : 'red';
+                    setTimeout(startNormalPhase, 1500);
+                }
+            } else {
+                btnElement.style.background = '#aa0000';
+                btnElement.style.opacity = '0.3';
+
+                if (turnPhase === 'NORMAL' || turnPhase === 'COMBO_ANSWER') {
+                    currentTurn = currentTurn === 'red' ? 'blue' : 'red';
+                    turnPhase = 'STEAL';
+                    updateTurnUI();
+                    msgBox.innerHTML = `<span style='color:#ff2a2a;'>答錯了！換${getTeamName()}搶答！</span>`;
+                    
+                    document.querySelectorAll('.option-btn').forEach(b => {
+                        if (b.style.background !== 'rgb(170, 0, 0)') b.disabled = false;
+                    });
+                } else if (turnPhase === 'STEAL') {
+                    msgBox.innerHTML = "<span style='color:#ffd700;'>⚠️ 雙方皆答錯！領地保留。</span>";
+                    setTimeout(() => { startNormalPhase(); }, 1500);
+                }
+            }
+        }
+
+        function updateTerritoryStats() {
+            let r = 0, b = 0;
+            board.forEach(cell => { if (cell === 'red') r++; if (cell === 'blue') b++; });
+            document.getElementById('red-territory').innerText = r;
+            document.getElementById('blue-territory').innerText = b;
+        }
+
+        function checkWin() {
+            let redScore = calculateScore('red');
+            let blueScore = calculateScore('blue');
+            
+            document.getElementById('red-points').innerText = redScore;
+            document.getElementById('blue-points').innerText = blueScore;
+
+            if (redScore >= 3 && blueScore >= 3) {
+                setTimeout(() => { alert("🎉 雙方同時達到 3 分！平手！"); location.reload(); }, 500);
+            } else if (redScore >= 3) {
+                setTimeout(() => { alert("🎉 恭喜！紅色陣營率先獲得 3 分，取得最終勝利！"); location.reload(); }, 500);
+            } else if (blueScore >= 3) {
+                setTimeout(() => { alert("🎉 恭喜！藍色陣營率先獲得 3 分，取得最終勝利！"); location.reload(); }, 500);
+            }
+        }
+
+        function calculateScore(player) {
+            let score = 0;
+            const size = 6;
+            const isP = (r, c) => r >= 0 && r < size && c >= 0 && c < size && board[r * size + c] === player;
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (!isP(r, c)) continue;
+                    if (!isP(r, c - 1)) {
+                        let len = 1; while (isP(r, c + len)) len++;
+                        if (len === 4) score += 1; else if (len === 5) score += 2; else if (len >= 6) score += 3;
+                    }
+                    if (!isP(r - 1, c)) {
+                        let len = 1; while (isP(r + len, c)) len++;
+                        if (len === 4) score += 1; else if (len === 5) score += 2; else if (len >= 6) score += 3;
+                    }
+                    if (!isP(r - 1, c - 1)) {
+                        let len = 1; while (isP(r + len, c + len)) len++;
+                        if (len === 4) score += 1; else if (len === 5) score += 2; else if (len >= 6) score += 3;
+                    }
+                    if (!isP(r - 1, c + 1)) {
+                        let len = 1; while (isP(r + len, c - len)) len++;
+                        if (len === 4) score += 1; else if (len === 5) score += 2; else if (len >= 6) score += 3;
+                    }
+                }
+            }
+            return score;
+        }
+    </script>
+</body>
+</html>
